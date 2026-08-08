@@ -5,6 +5,7 @@ const VENUES = new Map(DATA.venues.map((v) => [v.id, v]));
 const BOOKING = (id) => `https://www.stadt-zuerich.ch/sport-portal/angebot/${id}`;
 const FAV_KEY = "zurich-holiday-courses:favourites";
 const FILTER_KEY = "zurich-holiday-courses:filters";
+const HOME_KEY = "zurich-holiday-courses:home";
 // Bumped whenever the filter shape or its vocabulary changes. Stored state
 // from an older build is discarded rather than left to silently match nothing.
 const FILTER_SCHEMA = 2;
@@ -48,8 +49,74 @@ for (const g of DATA.groups) {
     ...[...g.details.texts, ...g.details.bring, ...g.details.notes].map((e) => e.value),
     ...g.variants.map((v) => `${v.nr} ${VENUES.get(v.venue).name} ${VENUES.get(v.venue).city}`)]
     .join(" ").toLowerCase();
-  for (const v of g.variants) v.km = VENUES.get(v.venue).km;
 }
+
+// -------------------------------------------------------- distance origin
+
+const GEO = "https://api3.geo.admin.ch/rest/services/api/SearchServer";
+
+// Every distance hangs off this. The payload ships venue coordinates and a
+// default origin only, because the visitor can move the origin at any time.
+const home = (() => {
+  const saved = load(HOME_KEY, null);
+  const number = (n) => typeof n === "number" && Number.isFinite(n);
+  return saved && number(saved.lat) && number(saved.lon)
+    && typeof saved.label === "string" && saved.label
+    ? { lat: saved.lat, lon: saved.lon, label: saved.label }
+    : { ...DATA.home };
+})();
+
+const haversineKm = (a, b) => {
+  const R = 6371, rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+};
+
+// Venue distance is shared by every slot at that venue; both are re-derived
+// rather than recreated, so existing variant objects stay valid.
+const applyHome = () => {
+  for (const venue of VENUES.values()) venue.km = Math.round(haversineKm(home, venue) * 100) / 100;
+  for (const g of DATA.groups) for (const v of g.variants) v.km = VENUES.get(v.venue).km;
+};
+
+const isDefaultHome = () => home.lat === DATA.home.lat && home.lon === DATA.home.lon;
+
+const useDefault = el("button", {
+  className: "undo", type: "button", textContent: "use the default address",
+});
+useDefault.onclick = () => setHome({ ...DATA.home });
+
+// The note says the only two things worth saying: a lookup failed, or the
+// origin has been moved off the default and can be moved back.
+const homeNote = (message = "", failed = false) => {
+  const note = $("home-note");
+  note.className = `home-note${failed ? " bad" : ""}`;
+  note.replaceChildren(...[message, isDefaultHome() ? null : useDefault].filter(Boolean));
+};
+
+const renderHome = () => {
+  $("home-label").textContent = home.label;
+  $("f-home").value = home.label;
+  homeNote();
+};
+
+const setHome = (next) => {
+  Object.assign(home, next);
+  save(HOME_KEY, home);
+  applyHome();
+  renderHome();
+  render();
+};
+
+// The geocoder is fuzzy — it answers *something* for almost any input — so the
+// address it actually matched is echoed back instead of the text as typed.
+const geocode = async (query) => {
+  const url = `${GEO}?${new URLSearchParams({ searchText: query, type: "locations", limit: "1" })}`;
+  const hit = (await (await fetch(url)).json()).results?.[0]?.attrs;
+  if (!hit) return null;
+  return { lat: hit.lat, lon: hit.lon, label: hit.label.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim() };
+};
 
 const tally = (items, keyOf) => {
   const counts = new Map();
@@ -191,14 +258,137 @@ const collect = () => {
   return hits;
 };
 
+// ------------------------------------------------------------------- map
+
+// A fixed-viewport slippy map, hand-rolled. The OSM iframe embed only reads a
+// single `marker` parameter, and Leaflet would be a CDN dependency for two
+// pins that never pan — so the tiles that cover the box are laid out directly
+// and the markers are positioned on top of them.
+
+const TILE = 256;
+const MAP_ZOOM_MAX = 16;
+// Keeps the outermost pin, which is drawn above its coordinate, off the edge.
+const MAP_PAD = 36;
+
+const directions = (venue) =>
+  `https://www.google.com/maps/dir/?api=1&origin=${home.lat},${home.lon}`
+  + `&destination=${venue.lat},${venue.lon}`;
+
+// Web Mercator, in pixels at the given zoom.
+const project = (p, z) => {
+  const n = TILE * 2 ** z;
+  const sin = Math.sin(p.lat * Math.PI / 180);
+  return {
+    x: n * (p.lon + 180) / 360,
+    y: n * (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)),
+  };
+};
+
+// Closest zoom that still leaves every point inside the padded viewport.
+const fitZoom = (points, w, h) => {
+  for (let z = MAP_ZOOM_MAX; z > 1; z--) {
+    const xs = points.map((p) => project(p, z).x);
+    const ys = points.map((p) => project(p, z).y);
+    if (Math.max(...xs) - Math.min(...xs) <= w - 2 * MAP_PAD
+      && Math.max(...ys) - Math.min(...ys) <= h - 2 * MAP_PAD) return z;
+  }
+  return 1;
+};
+
+const drawMap = (node) => {
+  // "Show all dates" opens 180 cards at once; a map that is nowhere near the
+  // viewport stays an empty box until it is.
+  if (!node.near) return;
+  const { width, height } = node.getBoundingClientRect();
+  const [w, h] = [Math.round(width), Math.round(height)];
+  if (!w || !h) return;
+
+  const z = fitZoom(node.points, w, h);
+  const placed = node.points.map((p) => ({ ...p, ...project(p, z) }));
+
+  const left = (Math.min(...placed.map((p) => p.x)) + Math.max(...placed.map((p) => p.x))) / 2 - w / 2;
+  const top = (Math.min(...placed.map((p) => p.y)) + Math.max(...placed.map((p) => p.y))) / 2 - h / 2;
+
+  const tiles = el("div", { className: "map-tiles" });
+  for (let ty = Math.floor(top / TILE); ty <= Math.floor((top + h) / TILE); ty++) {
+    if (ty < 0 || ty >= 2 ** z) continue;
+    for (let tx = Math.floor(left / TILE); tx <= Math.floor((left + w) / TILE); tx++) {
+      const img = el("img", {
+        className: "tile", alt: "", loading: "lazy", width: TILE, height: TILE,
+        src: `https://tile.openstreetmap.org/${z}/${((tx % 2 ** z) + 2 ** z) % 2 ** z}/${ty}.png`,
+      });
+      img.style = `left:${tx * TILE - left}px;top:${ty * TILE - top}px`;
+      tiles.append(img);
+    }
+  }
+
+  const pins = placed.map((p) => {
+    const pin = p.href
+      ? el("a", { className: `pin ${p.kind}`, href: p.href, target: "_blank", rel: "noopener noreferrer" })
+      : el("div", { className: `pin ${p.kind}` });
+    pin.title = p.label;
+    if (p.index) pin.append(el("span", { textContent: String(p.index) }));
+    // The whole world is one tile wide at z0 and the box is centred on the
+    // points, so no pin can wrap; a plain offset is enough.
+    pin.style = `left:${p.x - left}px;top:${p.y - top}px`;
+    return pin;
+  });
+
+  node.replaceChildren(tiles, ...pins, el("div", { className: "map-credit" },
+    el("a", {
+      href: "https://www.openstreetmap.org/copyright", target: "_blank",
+      rel: "noopener noreferrer", textContent: "© OpenStreetMap",
+    })));
+};
+
+// Maps are sized by the sidebar and the viewport, never by their own content,
+// so one pair of observers drives every map: intersection decides whether a
+// map is worth building, size changes redraw the ones that already are.
+const mapViews = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    e.target.near = e.isIntersecting;
+    drawMap(e.target);
+  }
+}, { rootMargin: "300px" });
+const mapSizes = new ResizeObserver((entries) => { for (const e of entries) drawMap(e.target); });
+
+// Home plus every venue a still-visible date is at: filtering a card down to
+// one week narrows its map to the venues that week actually uses.
+const mapPanel = (slots) => {
+  const venues = [...new Set(slots.map((v) => v.venue))].map((id) => VENUES.get(id));
+  const numbered = venues.length > 1;
+  const node = el("div", { className: "map" });
+  // Home is last so it paints above the venue pins: a venue can sit a few
+  // hundred metres away, and the small dot on top of the pin still reads as
+  // two places, where the reverse hides it completely.
+  node.points = [
+    ...venues.map((venue, i) => ({
+      kind: "venue", lat: venue.lat, lon: venue.lon, href: directions(venue),
+      index: numbered ? i + 1 : 0,
+      label: `${venue.name} — ${km(venue.km)} away`,
+    })),
+    { kind: "home", lat: home.lat, lon: home.lon, label: `Home — ${home.label}` },
+  ];
+  mapViews.observe(node);
+  mapSizes.observe(node);
+
+  const legend = el("div", { className: "map-legend" },
+    el("span", {}, el("i", { className: "swatch home" }), home.label),
+    venues.map((venue, i) => el("span", {},
+      el("i", { className: "swatch venue", textContent: numbered ? String(i + 1) : "" }),
+      `${venue.name} · ${km(venue.km)}`)),
+  );
+  return el("figure", { className: "map-wrap" }, node, legend);
+};
+
 // ------------------------------------------------------------- rendering
 
 const venueCell = (v) => {
   const venue = VENUES.get(v.venue);
-  const dir = `https://www.google.com/maps/dir/?api=1&origin=${DATA.home.lat},${DATA.home.lon}`
-    + `&destination=${venue.lat},${venue.lon}`;
   return el("td", {},
-    el("a", { href: dir, target: "_blank", rel: "noopener noreferrer", textContent: venue.name }),
+    el("a", {
+      href: directions(venue), target: "_blank", rel: "noopener noreferrer", textContent: venue.name,
+    }),
     el("div", { className: "venue-sub", textContent: [venue.street, venue.city].filter(Boolean).join(", ") }),
   );
 };
@@ -353,6 +543,7 @@ const card = (hit) => {
   const { shared, perRow } = splitDetails(g.details, slots);
   const body = open ? el("div", { className: "card-body" },
     describe(shared),
+    mapPanel(slots),
     slotTable(slots, g, perRow),
   ) : null;
 
@@ -457,6 +648,21 @@ const buildControls = () => {
   bind("f-fav", "favOnly", (n) => n.checked, "change");
   bind("f-bookable", "bookable", (n) => n.checked, "change");
 
+  // Lookups race; only the newest answer is allowed to move the origin.
+  let lookup = 0;
+  $("f-home").addEventListener("change", async (e) => {
+    const query = e.target.value.trim();
+    if (!query) { renderHome(); return; }
+    if (query === home.label) return;
+    const token = ++lookup;
+    homeNote("Looking up…");
+    let hit = null;
+    try { hit = await geocode(query); } catch { /* offline or blocked */ }
+    if (token !== lookup) return;
+    if (hit) setHome(hit);
+    else homeNote(`Could not find “${query}”. Still measuring from ${home.label}.`, true);
+  });
+
   $("reset").onclick = () => {
     Object.assign(filters, structuredClone(DEFAULTS));
     expanded.clear();
@@ -485,7 +691,8 @@ const syncControls = () => {
   syncLabels();
 };
 
-$("home-label").textContent = DATA.home.label;
+applyHome();
+renderHome();
 buildControls();
 syncControls();
 commit();

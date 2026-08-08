@@ -14,7 +14,9 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
 const API = "https://www.stadt-zuerich.ch/sport-portal/API/api/courses";
 const GEO = "https://api3.geo.admin.ch/rest/services/api/SearchServer";
-const HOME = { lat: 47.40240478515625, lon: 8.543060302734375, label: "Ringstrasse 33, 8057 Zürich" };
+// Only the fallback origin: the browser recomputes every distance from the
+// visitor's own address, so nothing distance-shaped is baked into the payload.
+const DEFAULT_HOME = { lat: 47.40240478515625, lon: 8.543060302734375, label: "Ringstrasse 33, 8057 Zürich" };
 const REFETCH = process.argv.includes("--refetch");
 
 const cache = async (name, produce) => {
@@ -98,13 +100,6 @@ const lv95ToWgs84 = (E, N) => {
 };
 
 const inSwitzerland = (E, N) => E >= 2485000 && E <= 2834000 && N >= 1075000 && N <= 1296000;
-
-const haversineKm = (a, b) => {
-  const R = 6371, rad = Math.PI / 180;
-  const dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-};
 
 // ---------------------------------------------------------------- taxonomy
 
@@ -434,7 +429,6 @@ for (const c of courses) {
     lat: coord.lat,
     lon: coord.lon,
     approx: coord.source === "geocoded",
-    km: Math.round(haversineKm(HOME, coord) * 100) / 100,
   });
 }
 
@@ -565,7 +559,7 @@ const weeks = [...new Map(courses.map((c) => [weekOf(c).id, weekOf(c)])).values(
   .sort((a, b) => a.id.localeCompare(b.id));
 
 const data = {
-  home: HOME,
+  home: DEFAULT_HOME,
   generated: new Date().toISOString(),
   weeks,
   venues: [...venues.values()],

@@ -8,6 +8,7 @@
   --accent: #0b6bcb;
   --accent-soft: #e7f0fb;
   --star: #e8a317;
+  --bad: #b4232a;
   --radius: 10px;
 }
 @media (prefers-color-scheme: dark) {
@@ -19,6 +20,7 @@
     --line: #2c313a;
     --accent: #64a8f0;
     --accent-soft: #1d2c3d;
+    --bad: #f0938f;
   }
 }
 
@@ -100,6 +102,10 @@ input[type=search], input[type=number], select {
 }
 input[type=range] { width: 100%; accent-color: var(--accent); }
 output { font-weight: 400; text-transform: none; color: var(--ink); }
+
+.home-note { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; font-size: .78rem; color: var(--muted); }
+.home-note.bad { color: var(--bad); }
+.undo { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); text-decoration: underline; cursor: pointer; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
@@ -227,6 +233,62 @@ output { font-weight: 400; text-transform: none; color: var(--ink); }
 .note b { color: var(--ink); }
 
 .desc + .desc { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); }
+
+/* Map pins sit on the tile canvas rather than on app chrome, so they keep
+   fixed colours in both themes instead of following the palette. */
+.map-wrap { margin: 12px 0 0; }
+.map {
+  position: relative; height: 240px; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+  contain: layout paint;
+}
+.map-tiles { position: absolute; inset: 0; }
+/* The tiles are a light-mode raster; inverting hue-rotates them back to a
+   plausible dark basemap without shipping a second tile source. */
+@media (prefers-color-scheme: dark) {
+  .map-tiles { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.9); }
+}
+.map .tile { position: absolute; max-width: none; }
+
+.pin {
+  position: absolute; display: grid; place-items: center;
+  color: #fff; font-size: .68rem; font-weight: 700; line-height: 1; text-decoration: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .45));
+}
+.pin.venue {
+  width: 24px; height: 24px; background: #d93b30; border: 2px solid #fff;
+  border-radius: 50% 50% 50% 0; transform: translate(-50%, -100%) rotate(-45deg);
+}
+.pin.venue span { transform: rotate(45deg); }
+.pin.home {
+  width: 16px; height: 16px; background: #1663c7; border: 3px solid #fff;
+  border-radius: 50%; transform: translate(-50%, -50%);
+}
+
+/* Sits outside .map-tiles, so it is not caught by the dark-mode inversion and
+   has to be themed by hand. */
+.map-credit {
+  position: absolute; right: 0; bottom: 0; padding: 1px 5px;
+  background: rgba(255, 255, 255, .78); border-radius: 4px 0 0 0; font-size: .62rem;
+}
+.map-credit a { color: #333; text-decoration: none; }
+@media (prefers-color-scheme: dark) {
+  .map-credit { background: rgba(16, 18, 22, .72); }
+  .map-credit a { color: #c8ccd2; }
+}
+
+.map-legend {
+  display: flex; flex-wrap: wrap; gap: 4px 16px;
+  margin-top: 6px; font-size: .78rem; color: var(--muted);
+}
+.map-legend span { display: flex; align-items: center; gap: 6px; }
+.swatch {
+  display: grid; place-items: center; flex: none;
+  width: 12px; height: 12px; border-radius: 50%;
+  color: #fff; font-size: .55rem; font-style: normal; font-weight: 700;
+}
+.swatch.home { background: #1663c7; }
+.swatch.venue { background: #d93b30; }
 
 table.slots tr.expandable { cursor: pointer; }
 table.slots tr.expandable:hover > td { background: var(--accent-soft); }

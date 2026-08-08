@@ -31,5 +31,17 @@ When the user says *push*, do all of it without asking for confirmation:
   `index.html`. `index.html` is the deployed artifact and *is* committed.
 - `cache/translations.json` is authored, not fetched. A missing entry is a hard
   build error rather than a German string leaking into the English UI.
+- Distances are computed in the browser, not at build time. `DEFAULT_HOME` in
+  `build.mjs` is only the fallback origin shipped in the payload; a visitor can
+  set their own address (geocoded against api3.geo.admin.ch, persisted under
+  `zurich-holiday-courses:home`), and every `km` value, the distance filter,
+  the distance sort and the Google Maps links follow it.
+- Every expanded course card carries a map of home plus the venues its still
+  visible dates use. It is not Leaflet and not the OSM iframe embed (that one
+  only reads a single `marker` parameter): `drawMap` in `src/app.js` lays out
+  the raster tiles that cover the box and positions the pins itself, so
+  `tile.openstreetmap.org` is the only runtime dependency it adds. Tiles are
+  built lazily — a map stays an empty box until it comes within 300px of the
+  viewport — because "Show all dates" opens every card at once.
 - Only `ferientypId === 3` (autumn) is in scope; summer is filtered out at the
   top of the pipeline in `build.mjs`.
