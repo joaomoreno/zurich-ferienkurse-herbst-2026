@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zurich holiday courses</title>
+<style>/*STYLE*/</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-main">
+    <h1>Zurich holiday courses</h1>
+    <p class="sub">Straight-line distance from <strong id="home-label"></strong></p>
+  </div>
+  <div class="topbar-stats">
+    <span id="count" class="count"></span>
+    <button id="reset" class="ghost" type="button">Clear filters <span id="active-count" class="badge-count"></span></button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="filters" id="filters">
+    <label class="field">
+      <span>Search</span>
+      <input type="search" id="f-q" placeholder="Title, venue, description, course no.">
+    </label>
+
+    <fieldset class="field">
+      <legend>Holiday week</legend>
+      <div id="f-weeks" class="chips"></div>
+    </fieldset>
+
+    <fieldset class="field">
+      <legend>Category</legend>
+      <div id="f-cats" class="chips"></div>
+    </fieldset>
+
+    <label class="field">
+      <span>Activity</span>
+      <select id="f-activity"></select>
+    </label>
+
+    <label class="field">
+      <span>Child's year of birth</span>
+      <input type="number" id="f-year" min="2000" max="2026" step="1" placeholder="e.g. 2016" list="years">
+      <datalist id="years"></datalist>
+    </label>
+
+    <label class="field">
+      <span>Max. distance <output id="o-km"></output></span>
+      <input type="range" id="f-km" min="0" max="10" step="0.5" value="10">
+    </label>
+
+    <label class="field">
+      <span>Max. price <output id="o-price"></output></span>
+      <input type="range" id="f-price" min="0" max="700" step="10" value="700">
+    </label>
+
+    <div class="field two">
+      <label>
+        <span>Starts at or after</span>
+        <select id="f-start"></select>
+      </label>
+      <label>
+        <span>Ends by</span>
+        <select id="f-end"></select>
+      </label>
+    </div>
+
+    <label class="field">
+      <span>Level</span>
+      <select id="f-level"></select>
+    </label>
+
+    <label class="field">
+      <span>Who it's for</span>
+      <select id="f-gender">
+        <option value="">Anyone</option>
+        <option value="Girls only">Girls only</option>
+        <option value="Girls and boys">Mixed groups</option>
+      </select>
+    </label>
+
+    <label class="check">
+      <input type="checkbox" id="f-bookable">
+      <span>Only dates still open</span>
+    </label>
+
+    <label class="check">
+      <input type="checkbox" id="f-fav">
+      <span>Only favourites <span id="fav-count" class="badge-count"></span></span>
+    </label>
+  </aside>
+
+  <main>
+    <div class="toolbar">
+      <label>
+        <span>Sort by</span>
+        <select id="f-sort">
+          <option value="distance">Distance</option>
+          <option value="price-asc">Price, low to high</option>
+          <option value="price-desc">Price, high to low</option>
+          <option value="date">Start date</option>
+          <option value="title">Title</option>
+          <option value="category">Category</option>
+          <option value="age">Age (youngest first)</option>
+        </select>
+      </label>
+      <button id="expand-all" class="ghost" type="button">Show all dates</button>
+    </div>
+    <div id="results"></div>
+  </main>
+</div>
+
+<script type="application/json" id="payload">/*DATA*/</script>
+<script>/*SCRIPT*/</script>
+</body>
+</html>
